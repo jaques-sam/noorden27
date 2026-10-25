@@ -1,0 +1,60 @@
+<!doctype html><html lang=nl><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Noorden '27</title>
+<style>@LCSS@</style>
+<script>@LJS@</script>
+<style>html,body,#m{height:100%;margin:0;font:13px sans-serif}#m{background:#cfe3f2}
+.box{background:#fff;padding:8px 10px;border-radius:6px;box-shadow:0 1px 5px rgba(0,0,0,.4);line-height:1.5}
+.box i{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.box s{display:inline-block;width:18px;border-top:3px dashed;margin-right:6px;vertical-align:3px}
+.rt{max-width:300px;max-height:60vh;overflow:auto}.rt summary{font-weight:bold;cursor:pointer}.rt ol{margin:4px 0 6px;padding-left:22px}
+.st{font-size:11px;color:#555}</style>
+<div id=m></div><script>
+const SNAP=@SNAP@,LIVE=@LIVE@,BUILT='@BUILT@';
+const COUNTRY={Noorwegen:'#d62728',Denemarken:'#1f77b4',Zweden:'#e6a100'},PAL=['#c2185b','#2e9e44','#8e44ad','#d35400','#16a085','#555'];
+
+// RFC 4180 CSV -> array of objects keyed by header
+function csv(t){const rows=[];let r=[],f='',q=false;
+ for(let i=0;i<t.length;i++){const c=t[i];
+  if(q){if(c=='"'){if(t[i+1]=='"'){f+='"';i++}else q=false}else f+=c}
+  else if(c=='"')q=true;else if(c==','){r.push(f);f=''}else if(c=='\n'){r.push(f);rows.push(r);r=[];f=''}else if(c!='\r')f+=c}
+ if(f||r.length){r.push(f);rows.push(r)}
+ const h=rows.shift()||[];return rows.filter(x=>x.some(v=>v.trim())).map(x=>Object.fromEntries(h.map((k,i)=>[k.trim(),(x[i]||'').trim()])))}
+const num=v=>parseFloat(String(v).replace(',','.'));
+const col=(o,...names)=>{for(const n of names)for(const k in o)if(k.toLowerCase().startsWith(n.toLowerCase()))return o[k];return ''};
+
+async function load(){const out={},live=[];
+ await Promise.all(Object.entries(LIVE).map(async([tab,[url,must]])=>{
+  try{const t=await (await fetch(url)).text();if(!t.split('\n')[0].includes('"'+must+'"'))throw 0;out[tab]=csv(t);live.push(tab)}
+  catch(e){out[tab]=csv(SNAP[tab])}}));
+ return [out,live]}
+
+const m=L.map('m').setView([60,12],5);
+const esri=s=>L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/'+s+'/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri',maxZoom:18});
+const land=L.geoJSON(@GEO@,{style:{color:'#8a9aa8',weight:1,fillColor:'#e9efe4',fillOpacity:1},onEachFeature:(f,l)=>l.bindTooltip(f.properties.n,{sticky:true})}).addTo(m);
+const base={'Offline kaart (werkt altijd)':land,'Straten (online, Esri)':esri('World_Street_Map'),'Satelliet (online, Esri)':esri('World_Imagery')};
+
+load().then(([d,live])=>{
+ const pos={};d['Coördinaten'].forEach(r=>{const a=num(col(r,'Breedtegraad')),b=num(col(r,'Lengtegraad'));if(isFinite(a)&&isFinite(b))pos[col(r,'Bestemming')]=[a,b]});
+ const route=d['Routevoorstel']||[],couples=[...new Set(route.map(r=>col(r,'Koppel')).filter(Boolean))],cc={};
+ couples.forEach((c,i)=>cc[c]=PAL[i%PAL.length]);
+ const visits={};route.forEach(r=>{const b=col(r,'Bestemming');if(b)(visits[b]=visits[b]||[]).push(`${col(r,'Koppel')} dag ${col(r,'Dag')} (${col(r,'Datum')})`)});
+ const g={},missing=[];
+ d['Bestemmingen'].forEach(r=>{const n=col(r,'Bestemming'),p=pos[n];if(!n)return;if(!p){missing.push(n);return}
+  const land_=col(r,'Land'),tot=Math.round(num(col(r,'Totaalscore')))||'?',pref=couples.filter(c=>col(r,'Voorkeur '+c));
+  const ic=L.divIcon({className:'',iconSize:[30,30],html:`<div style="width:30px;height:30px;border-radius:50%;background:${COUNTRY[land_]||'#777'};color:#fff;font:bold 12px sans-serif;display:flex;align-items:center;justify-content:center;border:${pref.length?'4px solid #111':'2px solid #fff'};box-sizing:border-box;box-shadow:0 0 3px #000">${tot}</div>`});
+  (g[land_]=g[land_]||L.layerGroup().addTo(m)).addLayer(L.marker(p,{icon:ic,title:`${n} (${tot}%)`}).bindPopup(
+   `<b>${n}</b><br>${land_}, ${col(r,'Type')}<br>Totaal ${tot}%<br>Kind ${col(r,'Kind')}%, Must-see ${col(r,'Must')}%, Mooi ${col(r,'Mooi')}%, Toeristisch ${col(r,'Toerist')}%<br>${col(r,'Korte duiding')}`
+   +(pref.length?`<br><b>Voorkeur:</b> ${pref.join(', ')}`:'')+(visits[n]?`<br><b>In route:</b> ${visits[n].join('; ')}`:'')))});
+ const byC=c=>route.filter(r=>col(r,'Koppel')==c).sort((a,b)=>num(col(a,'Dag'))-num(col(b,'Dag'))||num(col(a,'Volgorde'))-num(col(b,'Volgorde')));
+ couples.forEach(c=>g['Route '+c]=L.polyline(byC(c).map(r=>pos[col(r,'Bestemming')]).filter(Boolean),{color:cc[c],weight:3,dashArray:'6'}).addTo(m));
+ L.control.layers(base,g,{collapsed:false}).addTo(m);
+ const leg=L.control({position:'bottomleft'});leg.onAdd=()=>{const x=L.DomUtil.create('div','box');
+  x.innerHTML='<b>Totaalscore in %</b><br>'+Object.entries(COUNTRY).map(([k,v])=>`<i style="background:${v}"></i>${k}`).join('<br>')
+  +'<br><i style="background:#999;border:3px solid #111;box-sizing:border-box"></i>Voorkeur van minstens één koppel<br>'
+  +couples.map(c=>`<s style="border-color:${cc[c]}"></s>Route ${c}`).join('<br>')
+  +`<div class=st>Live uit Google Sheet: ${live.join(', ')||'geen'}${live.length<3?' (rest: kopie van '+BUILT+')':''}${missing.length?'<br>Zonder coördinaten: '+missing.join(', '):''}</div>`;return x};leg.addTo(m);
+ const info=L.control({position:'topright'});info.onAdd=()=>{const x=L.DomUtil.create('div','box rt');
+  L.DomEvent.disableClickPropagation(x);L.DomEvent.disableScrollPropagation(x);
+  x.innerHTML=couples.map(c=>{const days={};byC(c).forEach(r=>(days[col(r,'Dag')]=days[col(r,'Dag')]||{d:col(r,'Datum'),l:[]}).l.push(col(r,'Omschrijving')||col(r,'Bestemming')));
+   const k=Object.keys(days);return `<details><summary style="color:${cc[c]}">${c} (${k.length} dagen)</summary><ol>${k.map(n=>`<li>${days[n].d}: ${days[n].l.join(' + ')}</li>`).join('')}</ol></details>`}).join('');return x};info.addTo(m);
+});
+</script></html>
