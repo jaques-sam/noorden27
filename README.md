@@ -1,7 +1,6 @@
 # noorden27
 
 Scandinavia holiday planner: map with all destinations (score, preferences) and one route per couple.
-Published at <https://www.kr8ium.com/noorden27/>.
 
 ## Data
 
@@ -16,16 +15,16 @@ When a tab cannot be fetched, the map falls back to the snapshot in `data/*.csv`
 
 ## Configuration
 
-The sheet id lives outside the repo, in `~/.config/noorden27/config.json` (or under `$XDG_CONFIG_HOME`):
+Everything site-specific lives outside the repo, in `~/.config/noorden27/config.json` (or under `$XDG_CONFIG_HOME`):
 
 ```json
-{"sheet_id": "<google sheet id>"}
+{"sheet_id": "<google sheet id>", "deploy_target": "<ssh-user>@<ssh-host>", "remote_dir": "<directory on the host>"}
 ```
 
-`Routevoorstel` is optional and sensitive: `data/routevoorstel.csv` and `index.html` are gitignored.
-Without `data/routevoorstel.csv` the tab is left out of the build and the map shows no routes.
+`Routevoorstel` is sensitive: `data/routevoorstel.csv` and `index.html` are gitignored.
+When the sheet is not available and there is no `data/routevoorstel.csv`, the tab is left out of the build and the map shows no routes.
 
 ## Build and deploy
 
-`cargo run --release -- build --pull` refreshes `data/*.csv` from the sheet and writes `index.html` (omit `--pull` to build from the existing snapshots).
-`DEPLOY_TARGET=<ssh-user>@<ssh-host> cargo run --release -- deploy` uploads only `index.html` into `sites/kr8ium.com/noorden27` (same host as `rust-slides`).
+`cargo run --release -- build` fetches the sheet into `data/*.csv` (a tab that cannot be fetched keeps its existing snapshot) and writes `index.html`.
+`cargo run --release -- deploy` uploads only `index.html` into `remote_dir` on `deploy_target`.
